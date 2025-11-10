@@ -1,9 +1,9 @@
-// === bot.js — Pemantau SMS + Bot Telegram ===
-// Jalankan di Termux / Node.js
+// === jadi.js — Pemantau SMS + Bot Telegram ===
+// Jalankan di VPS / Termux
 // Pastikan sudah install: npm install axios
 
-import axios from "axios";
-import fs from "fs";
+const axios = require("axios");
+const fs = require("fs");
 
 // === KONFIGURASI ===
 const username = "boby";
@@ -11,20 +11,21 @@ const password = "boby123";
 const baseUrl = "https://d-group.stats.direct/rest/sms";
 const lastIdFile = "./lastId.txt";
 
-// Ganti token & chat ID kamu 👇
+// Token dan chat ID Telegram
 const TELEGRAM_TOKEN = "8201128453:AAEUTjCwzpdSV8YjUCLolkLRC1S_82rh_yE";
 const CHAT_ID = "-1003247283266";
 
-const auth = Buffer.from(`${username}:${password}`).toString("base64");
-const POLL_MS = 10000; // ⏱️ Delay 10 detik (aman dari 429)
+// Autentikasi dasar
+const auth = Buffer.from(username + ":" + password).toString("base64");
+const POLL_MS = 10000; // Delay 10 detik
 const perPage = 100;
 
-// === Pastikan file lastId aman ===
+// === File lastId ===
 let lastId = 0;
 if (fs.existsSync(lastIdFile)) {
   try {
     lastId = parseInt(fs.readFileSync(lastIdFile, "utf8")) || 0;
-  } catch {
+  } catch (e) {
     lastId = 0;
   }
 }
@@ -66,7 +67,6 @@ function extractCode(msg) {
   return found ? found[0] : "-";
 }
 
-// Hilangkan karakter aneh agar tidak error 400 di Telegram
 function cleanText(text) {
   return (text || "")
     .replace(/[\x00-\x1F\x7F]/g, "")
@@ -74,14 +74,12 @@ function cleanText(text) {
     .trim();
 }
 
-// Escape karakter Markdown agar Telegram aman
 function escapeMarkdown(text) {
   return text.replace(/[_*[\]()~`>#+\-=|{}.!]/g, "\\$&");
 }
 
-// === Kirim pesan ke Telegram ===
 async function sendToTelegram(text) {
-  const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
+  const url = "https://api.telegram.org/bot" + TELEGRAM_TOKEN + "/sendMessage";
   try {
     await axios.post(url, {
       chat_id: CHAT_ID,
@@ -89,17 +87,17 @@ async function sendToTelegram(text) {
       parse_mode: "MarkdownV2",
     });
   } catch (err) {
-    console.error("❌ Gagal kirim ke Telegram:", err.response?.data || err.message);
+    const errMsg = (err.response && err.response.data) || err.message;
+    console.error("❌ Gagal kirim ke Telegram:", errMsg);
   }
 }
 
-// === Ambil data dari server ===
 async function fetchSMS() {
   try {
     const res = await axios.get(baseUrl, {
       params: { page: 1, "per-page": perPage },
       headers: {
-        Authorization: `Basic ${auth}`,
+        Authorization: "Basic " + auth,
         Accept: "application/json",
         "User-Agent": "TelegramSMSBot/1.0",
       },
@@ -107,9 +105,11 @@ async function fetchSMS() {
     });
     return Array.isArray(res.data) ? res.data : [];
   } catch (err) {
-    if (err.response?.status === 429) {
+    if (err.response && err.response.status === 429) {
       console.warn("🚦 Terlalu sering meminta data — jeda 10 detik tambahan...");
-      await new Promise((r) => setTimeout(r, 10000)); // jeda 10 detik tambahan
+      await new Promise(function (r) {
+        setTimeout(r, 10000);
+      });
     } else {
       console.error("⚠️ Gagal ambil SMS:", err.message);
     }
@@ -117,7 +117,6 @@ async function fetchSMS() {
   }
 }
 
-// === Kirim SMS baru ke Telegram ===
 async function tampilkanSMS(sms) {
   const negara = detectCountry(sms.destination_addr);
   const waktu = sms.start_stamp || "-";
@@ -126,36 +125,43 @@ async function tampilkanSMS(sms) {
   const app = detectApp(sms);
   const pesan = cleanText(sms.short_message);
 
-  const teks = `
-📍 *Negara:* ${negara}
-🕒 *Waktu:* ${waktu}
-💠 *Aplikasi:* ${app}
-📱 *Nomor:* ${nomor}
-🔢 *Kode utama:* \`${kode}\`
-
-────────────────────────────
-📩 *Pesan:*
-${pesan}
-────────────────────────────
-`;
+  const teks =
+    "\n📍 *Negara:* " +
+    negara +
+    "\n🕒 *Waktu:* " +
+    waktu +
+    "\n💠 *Aplikasi:* " +
+    app +
+    "\n📱 *Nomor:* " +
+    nomor +
+    "\n🔢 *Kode utama:* `" +
+    kode +
+    "`\n\n────────────────────────────\n📩 *Pesan:*\n" +
+    pesan +
+    "\n────────────────────────────\n";
 
   console.log(teks);
-  fs.appendFileSync("log.txt", teks + "\n", "utf8"); // log ke file juga
+  fs.appendFileSync("log.txt", teks + "\n", "utf8");
   await sendToTelegram(teks);
 }
 
-// === Loop utama ===
 async function loopSMS() {
   console.log("🤖 Bot Telegram aktif — memantau SMS setiap 10 detik...\n");
 
-  setInterval(async () => {
+  setInterval(async function () {
     const smsList = await fetchSMS();
     if (!smsList.length) return;
 
     const newSMS = smsList
-      .map((s) => ({ ...s, _id: parseInt(s.id) }))
-      .filter((s) => s._id > lastId)
-      .sort((a, b) => a._id - b._id);
+      .map(function (s) {
+        return { ...s, _id: parseInt(s.id) };
+      })
+      .filter(function (s) {
+        return s._id > lastId;
+      })
+      .sort(function (a, b) {
+        return a._id - b._id;
+      });
 
     for (const sms of newSMS) {
       const kode = extractCode(sms.short_message);
